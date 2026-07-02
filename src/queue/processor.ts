@@ -21,7 +21,15 @@ export interface MessageJobData {
 
 const connection = new Redis(config.redis.url, { maxRetriesPerRequest: null });
 
-export const messageQueue = new Queue<MessageJobData>("messages", { connection });
+const JOB_OPTIONS = {
+  attempts: 3,
+  backoff: { type: "exponential" as const, delay: 5000 },
+};
+
+export const messageQueue = new Queue<MessageJobData>("messages", {
+  connection,
+  defaultJobOptions: JOB_OPTIONS,
+});
 
 export function startWorker(): Worker {
   return new Worker<MessageJobData>(

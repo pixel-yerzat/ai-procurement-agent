@@ -50,6 +50,14 @@ async function createClient(): Promise<void> {
 
   client.on("disconnected", (reason) => {
     console.warn("[WhatsApp] Disconnected:", reason, "— reconnecting in 5s...");
+    client.destroy().catch(() => null).finally(() => {
+      setTimeout(() => createClient(), 5000);
+    });
+  });
+
+  // Puppeteer page can be destroyed on WhatsApp Web reload — trigger reconnect
+  client.pupPage?.on("close", () => {
+    console.warn("[WhatsApp] Browser page closed — reconnecting in 5s...");
     setTimeout(() => createClient(), 5000);
   });
 
@@ -88,6 +96,23 @@ async function downloadAttachment(message: Message): Promise<string> {
   return destPath;
 }
 
-export async function sendMessage(to: string, text: string): Promise<void> {
-  await getClient().sendMessage(to, text);
+const DETACHED_FRAME_RE = /detached\s+frame/i;
+
+export async function sendMessage(
+  to: string,
+  text: string,
+  attempt = 1
+): Promise<void> {
+  try {
+    await getClient().sendMessage(to, text);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (DETACHED_FRAME_RE.test(msg) && attempt < 4) {
+      // Frame was destroyed — wait for the page to settle, then retry
+      console.warn(`[WhatsApp] Detached frame on send, retry ${attempt}/3 in 3s...`);
+      await new Promise((r) => setTimeout(r, 3000));
+      return sendMessage(to, text, attempt + 1);
+    }
+    throw err;
+  }
 }
