@@ -1,8 +1,8 @@
 import { Queue, Worker, Job } from "bullmq";
-import IORedis from "ioredis";
+import { Redis } from "ioredis";
 import { config } from "../config";
 import { parseFile } from "../parsers";
-import { processSupplierMessage } from "../agent";
+import { chat } from "../agent";
 import {
   upsertSupplier,
   saveMessage,
@@ -19,7 +19,7 @@ export interface MessageJobData {
   attachmentPath?: string;
 }
 
-const connection = new IORedis(config.redis.url, { maxRetriesPerRequest: null });
+const connection = new Redis(config.redis.url, { maxRetriesPerRequest: null });
 
 export const messageQueue = new Queue<MessageJobData>("messages", { connection });
 
@@ -29,7 +29,7 @@ export function startWorker(): Worker {
     async (job: Job<MessageJobData>) => {
       const { from, body, attachmentPath } = job.data;
 
-      // Ensure supplier exists
+      // Ensure contact exists in DB
       const supplier = await upsertSupplier(from);
       const supplierId: string = supplier.id;
 
@@ -56,29 +56,26 @@ export function startWorker(): Worker {
         docId = doc.id;
       }
 
-      // Get conversation history
+      // Load conversation history
       const history = await getMessageHistory(supplierId);
 
-      // Run AI agent
-      const agentResult = await processSupplierMessage(body, parsedText, history);
+      // Run AI
+      const result = await chat(body, parsedText, history);
 
-      // Save extracted offer if present
-      if (agentResult.extracted) {
+      // Save procurement offer only when AI actually extracted one
+      if (result.procurement) {
         await saveOffer({
           supplierId,
           documentId: docId,
-          offer: agentResult.extracted,
-          missingFields: agentResult.missingFields,
+          offer: result.procurement,
+          missingFields: result.missingFields,
         });
       }
 
-      // Send reply
-      await sendMessage(from, agentResult.reply);
-      await saveMessage(supplierId, "OUT", agentResult.reply);
+      // Reply to user
+      await sendMessage(from, result.reply);
+      await saveMessage(supplierId, "OUT", result.reply);
     },
-    {
-      connection,
-      concurrency: 5,
-    }
+    { connection, concurrency: 5 }
   );
 }

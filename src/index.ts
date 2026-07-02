@@ -4,7 +4,7 @@ import { messageQueue, startWorker } from "./queue/processor";
 import type { Message } from "whatsapp-web.js";
 
 async function main() {
-  console.log("[App] Starting AI Procurement Agent...");
+  console.log("[App] Starting AI WhatsApp Assistant...");
 
   // Start BullMQ worker
   const worker = startWorker();

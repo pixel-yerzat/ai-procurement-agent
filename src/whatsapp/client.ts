@@ -10,6 +10,7 @@ export type IncomingMessageHandler = (
 ) => Promise<void>;
 
 let client: Client;
+let messageHandler: IncomingMessageHandler;
 
 export function getClient(): Client {
   if (!client) throw new Error("WhatsApp client not initialized");
@@ -19,13 +20,18 @@ export function getClient(): Client {
 export async function initWhatsApp(
   onMessage: IncomingMessageHandler
 ): Promise<void> {
+  messageHandler = onMessage;
+  await createClient();
+}
+
+async function createClient(): Promise<void> {
   client = new Client({
     authStrategy: new LocalAuth({
       dataPath: config.whatsapp.sessionPath,
     }),
     puppeteer: {
       headless: true,
-      args: ["--no-sandbox", "--disable-setuid-sandbox"],
+      args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
     },
   });
 
@@ -35,14 +41,22 @@ export async function initWhatsApp(
   });
 
   client.on("ready", () => {
-    console.log("[WhatsApp] Client ready");
+    console.log("[WhatsApp] Connected and ready");
   });
 
   client.on("auth_failure", (msg) => {
     console.error("[WhatsApp] Auth failure:", msg);
   });
 
+  client.on("disconnected", (reason) => {
+    console.warn("[WhatsApp] Disconnected:", reason, "— reconnecting in 5s...");
+    setTimeout(() => createClient(), 5000);
+  });
+
   client.on("message", async (message: Message) => {
+    // Ignore group messages and status broadcasts
+    if (message.from === "status@broadcast") return;
+
     let attachmentPath: string | undefined;
 
     if (message.hasMedia) {
@@ -53,7 +67,11 @@ export async function initWhatsApp(
       }
     }
 
-    await onMessage(message, attachmentPath);
+    try {
+      await messageHandler(message, attachmentPath);
+    } catch (err) {
+      console.error("[WhatsApp] Handler error:", err);
+    }
   });
 
   await client.initialize();

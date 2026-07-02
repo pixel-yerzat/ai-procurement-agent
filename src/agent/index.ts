@@ -7,12 +7,6 @@ export interface HistoryMessage {
   content: string;
 }
 
-export interface AgentResponse {
-  reply: string;
-  extracted: ExtractedOffer | null;
-  missingFields: string[];
-}
-
 export interface ExtractedItem {
   name: string;
   unit: string | null;
@@ -30,16 +24,22 @@ export interface ExtractedOffer {
   notes: string | null;
 }
 
+export interface AgentResponse {
+  reply: string;
+  procurement: ExtractedOffer | null;
+  missingFields: string[];
+}
+
 const openai = new OpenAI({ apiKey: config.openai.apiKey });
 
-export async function processSupplierMessage(
-  supplierMessage: string,
+export async function chat(
+  userMessage: string,
   documentText: string | null,
   history: HistoryMessage[]
 ): Promise<AgentResponse> {
   const userContent = documentText
-    ? `${supplierMessage}\n\n[Document content]:\n${documentText}`
-    : supplierMessage;
+    ? `${userMessage}\n\n[Содержимое документа]:\n${documentText}`
+    : userMessage;
 
   const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
     { role: "system", content: SYSTEM_PROMPT },
@@ -51,21 +51,19 @@ export async function processSupplierMessage(
     model: config.openai.model,
     messages,
     response_format: { type: "json_object" },
-    temperature: 0.2,
+    temperature: 0.7,
   });
 
   const raw = completion.choices[0]?.message?.content ?? "{}";
 
-  let parsed: AgentResponse;
   try {
-    parsed = JSON.parse(raw) as AgentResponse;
-  } catch {
-    parsed = {
-      reply: raw,
-      extracted: null,
-      missingFields: [],
+    const parsed = JSON.parse(raw) as AgentResponse;
+    return {
+      reply: parsed.reply ?? "...",
+      procurement: parsed.procurement ?? null,
+      missingFields: parsed.missingFields ?? [],
     };
+  } catch {
+    return { reply: raw, procurement: null, missingFields: [] };
   }
-
-  return parsed;
 }
