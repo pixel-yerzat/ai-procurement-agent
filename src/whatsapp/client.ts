@@ -24,7 +24,21 @@ export async function initWhatsApp(
   await createClient();
 }
 
+function clearSessionLock(): void {
+  const lockFile = path.join(config.whatsapp.sessionPath, "session", "SingletonLock");
+  try {
+    if (fs.existsSync(lockFile)) {
+      fs.rmSync(lockFile);
+      console.log("[WhatsApp] Removed stale session lock");
+    }
+  } catch {
+    // non-fatal
+  }
+}
+
 async function createClient(): Promise<void> {
+  clearSessionLock();
+
   client = new Client({
     authStrategy: new LocalAuth({
       dataPath: config.whatsapp.sessionPath,

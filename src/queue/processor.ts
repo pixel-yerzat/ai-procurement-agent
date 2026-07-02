@@ -48,10 +48,19 @@ export function startWorker(): Worker {
       let parsedText: string | null = null;
       let docId: string | undefined;
 
+      let parseWarning: string | undefined;
+
       if (attachmentPath) {
         const ext = path.extname(attachmentPath).replace(".", "");
         const parsed = await parseFile(attachmentPath);
-        parsedText = parsed.text;
+
+        // If parser returned a warning (low quality / empty), tell the user immediately
+        if (parsed.warning) {
+          parseWarning = parsed.warning;
+          console.warn("[Parser] Warning:", parsed.warning);
+        }
+
+        parsedText = parsed.text || null;
 
         const doc = await saveDocument({
           supplierId,
@@ -62,6 +71,13 @@ export function startWorker(): Worker {
           ocrConfidence: parsed.confidence,
         });
         docId = doc.id;
+      }
+
+      // If file was unreadable — reply with warning, skip AI
+      if (parseWarning && !parsedText) {
+        await sendMessage(from, parseWarning);
+        await saveMessage(supplierId, "OUT", parseWarning);
+        return;
       }
 
       // Load conversation history
